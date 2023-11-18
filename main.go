@@ -11,6 +11,121 @@ import (
 )
 
 /*
+node1 [localhost:21201] {msandbox} (performance_schema) > show create table replication_group_member_stats\G
+*************************** 1. row ***************************
+       Table: replication_group_member_stats
+Create Table: CREATE TABLE `replication_group_member_stats` (
+  `CHANNEL_NAME` char(64) NOT NULL,
+  `VIEW_ID` char(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `MEMBER_ID` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `COUNT_TRANSACTIONS_IN_QUEUE` bigint unsigned NOT NULL,
+  `COUNT_TRANSACTIONS_CHECKED` bigint unsigned NOT NULL,
+  `COUNT_CONFLICTS_DETECTED` bigint unsigned NOT NULL,
+  `COUNT_TRANSACTIONS_ROWS_VALIDATING` bigint unsigned NOT NULL,
+  `TRANSACTIONS_COMMITTED_ALL_MEMBERS` longtext NOT NULL,
+  `LAST_CONFLICT_FREE_TRANSACTION` text NOT NULL,
+  `COUNT_TRANSACTIONS_REMOTE_IN_APPLIER_QUEUE` bigint unsigned NOT NULL,
+  `COUNT_TRANSACTIONS_REMOTE_APPLIED` bigint unsigned NOT NULL,
+  `COUNT_TRANSACTIONS_LOCAL_PROPOSED` bigint unsigned NOT NULL,
+  `COUNT_TRANSACTIONS_LOCAL_ROLLBACK` bigint unsigned NOT NULL
+) ENGINE=PERFORMANCE_SCHEMA DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+1 row in set (0.00 sec)
+
+*/
+
+type MemberStats struct {
+	channelName                           string
+	viewID                                string
+	memberId                              string
+	countTransactionsInQueue              int64
+	countTransactionsChecked              int64
+	countConflictsDetected                int64
+	countTransactionsRowsValidating       int64
+	transactionsCommittedAllMembers       string
+	lastConflictFreeTransaction           string
+	countTransactionsRemoteInApplierQueue int64
+	countTransactionsRemoteApplied        int64
+	countTransactionsLocalProposed        int64
+	countTransactionsLocalRollback        int64
+}
+
+func (ms MemberStats) String() string {
+	return fmt.Sprintf("{ channelName: %q, viewID: %q, memberID: %q, countTransactionsInQueue: %v, countTransactionsChecked: %v, countConflictsDetected: %v, countTransactionsRowsValidating: %v, transactionsCommittedAllMembers: %q, lastConflictFreeTransaction: %q, countTransactionsRemoteInApplierQueue: %v, countTransactionsRemoteApplied: %v, countTransactionsLocalProposed: %v, countTransactionsLocalRollback: %v}",
+		ms.channelName,
+		ms.viewID,
+		ms.memberId,
+		ms.countTransactionsInQueue,
+		ms.countTransactionsChecked,
+		ms.countConflictsDetected,
+		ms.countTransactionsRowsValidating,
+		ms.transactionsCommittedAllMembers,
+		ms.lastConflictFreeTransaction,
+		ms.countTransactionsRemoteInApplierQueue,
+		ms.countTransactionsRemoteApplied,
+		ms.countTransactionsLocalProposed,
+		ms.countTransactionsLocalRollback,
+	)
+}
+
+func getMemberStats(db *sql.DB) []MemberStats {
+	log.Printf("getMemberStats()\n")
+	var ms []MemberStats
+
+	statement := `
+SELECT	CHANNEL_NAME,
+	VIEW_ID,
+	MEMBER_ID,
+	COUNT_TRANSACTIONS_IN_QUEUE,
+	COUNT_TRANSACTIONS_CHECKED,
+	COUNT_CONFLICTS_DETECTED,
+	COUNT_TRANSACTIONS_ROWS_VALIDATING,
+	TRANSACTIONS_COMMITTED_ALL_MEMBERS,
+	LAST_CONFLICT_FREE_TRANSACTION,
+	COUNT_TRANSACTIONS_REMOTE_IN_APPLIER_QUEUE,
+	COUNT_TRANSACTIONS_REMOTE_APPLIED,
+	COUNT_TRANSACTIONS_LOCAL_PROPOSED,
+	COUNT_TRANSACTIONS_LOCAL_ROLLBACK
+FROM	performance_schema.replication_group_member_stats
+`
+	rows, err := db.Query(statement)
+	if err != nil {
+		log.Print("query %v failed: %v", statement, err)
+		return nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		stats := MemberStats{}
+
+		switch err := rows.Scan(
+			&stats.channelName,
+			&stats.viewID,
+			&stats.memberId,
+			&stats.countTransactionsInQueue,
+			&stats.countTransactionsChecked,
+			&stats.countConflictsDetected,
+			&stats.countTransactionsRowsValidating,
+			&stats.transactionsCommittedAllMembers,
+			&stats.lastConflictFreeTransaction,
+			&stats.countTransactionsRemoteInApplierQueue,
+			&stats.countTransactionsRemoteApplied,
+			&stats.countTransactionsLocalProposed,
+			&stats.countTransactionsLocalRollback,
+		); err {
+		case sql.ErrNoRows:
+			log.Printf("error: stats: no rows...\n")
+		case nil:
+		default:
+			panic(err)
+		}
+		ms = append(ms, stats)
+	}
+	if err := rows.Err(); err != nil {
+		panic(err)
+	}
+	return ms
+}
+
+/*
 node1 [localhost:21201] {msandbox} (performance_schema) > select * from replication_group_members;
 +---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
 | CHANNEL_NAME              | MEMBER_ID                            | MEMBER_HOST | MEMBER_PORT | MEMBER_STATE | MEMBER_ROLE | MEMBER_VERSION | MEMBER_COMMUNICATION_STACK |
@@ -242,7 +357,7 @@ type CollectionInformation struct {
 	grCommunicationInformation GroupCommunicationInformation
 	grConfigurationVersion     GroupConfigurationVersion
 	grMemberActions            GroupMemberActions
-	grMemberStats              string // fixme!
+	grMemberStats              []MemberStats
 	grMembers                  []GroupMember
 }
 
@@ -319,6 +434,8 @@ func (mi *MemberInformation) Collect() *CollectionInformation {
 		grCommunicationInformation: getGroupCommunicationInformation(mi.db),
 		grConfigurationVersion:     getGroupConfigurationVersion(mi.db),
 		grMemberActions:            getGroupMemberActions(mi.db),
+		grMemberStats:              getMemberStats(mi.db),
+		grMembers:                  getGroupMembers(mi.db),
 	}
 
 	return ci
