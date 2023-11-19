@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,8 +14,17 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
+const (
+	defaultInterval                     = 1 // period of collecting information
+	expectedGroupReplicationChannelName = "group_replication_applier"
+)
+
 // global variables are not ideal but leave this for now
-var debug bool
+var (
+	debug    bool
+	dsn      string
+	interval int
+)
 
 func debugLogging(fmt string, args ...any) {
 	if debug {
@@ -53,7 +63,7 @@ type MemberStats struct {
 	countTransactionsChecked              int64
 	countConflictsDetected                int64
 	countTransactionsRowsValidating       int64
-	transactionsCommittedAllMembers       string
+	transactionsCommittedAllMembers       string // large GTID set!
 	lastConflictFreeTransaction           string
 	countTransactionsRemoteInApplierQueue int64
 	countTransactionsRemoteApplied        int64
@@ -61,16 +71,29 @@ type MemberStats struct {
 	countTransactionsLocalRollback        int64
 }
 
+// filteredChannelName shows the field name and value if it's NOT the expected value
+func filteredChannelName(name string) string {
+	var finalName string
+
+	if name != expectedGroupReplicationChannelName {
+		finalName = fmt.Sprintf("channel: %q, ", name)
+	}
+
+	return finalName
+}
+
+// String returns a representation of a ReplicationGroupMemberStats row
 func (ms MemberStats) String() string {
-	return fmt.Sprintf("{ channelName: %q, viewID: %q, memberID: %q, countTransactionsInQueue: %v, countTransactionsChecked: %v, countConflictsDetected: %v, countTransactionsRowsValidating: %v, transactionsCommittedAllMembers: %q, lastConflictFreeTransaction: %q, countTransactionsRemoteInApplierQueue: %v, countTransactionsRemoteApplied: %v, countTransactionsLocalProposed: %v, countTransactionsLocalRollback: %v}",
-		ms.channelName,
+	// channelName may be hidden!
+	return fmt.Sprintf("%vview: %q, member: %q, InQueue: %v, Checked: %v, conflicts: %v, rowsValidating: %v, committedAllMembers: %q, lastTransaction: %q, RemoteInApplierQueue: %v, RemoteApplied: %v, LocalProposed: %v, LocalRollback: %v",
+		filteredChannelName(ms.channelName),
 		ms.viewID,
 		ms.memberId,
 		ms.countTransactionsInQueue,
 		ms.countTransactionsChecked,
 		ms.countConflictsDetected,
 		ms.countTransactionsRowsValidating,
-		ms.transactionsCommittedAllMembers,
+		"<skipped>", /* ms.transactionsCommittedAllMembers */
 		ms.lastConflictFreeTransaction,
 		ms.countTransactionsRemoteInApplierQueue,
 		ms.countTransactionsRemoteApplied,
@@ -79,6 +102,7 @@ func (ms MemberStats) String() string {
 	)
 }
 
+// getMemberStats returns a slice of MemberStats rows
 func getMemberStats(db *sql.DB) []MemberStats {
 	debugLogging("getMemberStats()")
 	var ms []MemberStats
@@ -101,7 +125,7 @@ FROM	performance_schema.replication_group_member_stats
 `
 	rows, err := db.Query(statement)
 	if err != nil {
-		log.Print("query %v failed: %v", statement, err)
+		log.Printf("query %v failed: %v", statement, err)
 		return nil
 	}
 	defer rows.Close()
@@ -148,7 +172,7 @@ node1 [localhost:21201] {msandbox} (performance_schema) > select * from replicat
 */
 type ReplicationGroupMember struct {
 	channelName              string
-	memberID                 string
+	memberId                 string
 	memberHost               string
 	memberPort               uint16
 	memberState              string
@@ -157,7 +181,7 @@ type ReplicationGroupMember struct {
 	memberCommunicationStack string
 }
 
-// convert a host, port to host:port, but if host is empty show empty quotes for clarity
+// hostPort returns the host port into a host:port format, but if host is empty show empty quotes for clarity
 func hostPort(host string, port uint16) string {
 	h := ""
 	if host == "" {
@@ -168,17 +192,20 @@ func hostPort(host string, port uint16) string {
 	return fmt.Sprintf("%v:%v", h, port)
 }
 
+// String returns the representation of a ReplicationGroupMember
 func (gm ReplicationGroupMember) String() string {
-	return fmt.Sprintf("{channelName: %q, memberID: %q, memberHost: %v, memberState: %q, memberRole: %v, memberVersion: %q, memberCommunicationStack: %q}",
-		gm.channelName,
-		gm.memberID,
+	// channelName may be hidden!
+	return fmt.Sprintf("%vmember: %v (%v), state: %q, role: %v, version: %q, stack: %q",
+		filteredChannelName(gm.channelName),
 		hostPort(gm.memberHost, gm.memberPort),
+		gm.memberId,
 		gm.memberState,
 		gm.memberRole,
 		gm.memberVersion,
 		gm.memberCommunicationStack)
 }
 
+// getReplicationGroupMembers returns the content of the replication_group_members table
 func getReplicationGroupMembers(db *sql.DB) []ReplicationGroupMember {
 	debugLogging("getReplicationGroupMembers()")
 	var gm []ReplicationGroupMember
@@ -200,7 +227,7 @@ FROM	performance_schema.replication_group_members
 
 		switch err := rows.Scan(
 			&member.channelName,
-			&member.memberID,
+			&member.memberId,
 			&member.memberHost,
 			&memberPort,
 			&member.memberState,
@@ -222,7 +249,6 @@ FROM	performance_schema.replication_group_members
 	if err := rows.Err(); err != nil {
 		panic(err)
 	}
-	log.Printf("- found %d group members", len(gm))
 	return gm
 }
 
@@ -236,7 +262,8 @@ root@grmetadb-1003 [performance_schema]> select * from replication_group_member_
 +------------------------------------------+------------------------+---------+----------+----------+----------------+
 */
 
-type ReplicationGroupMemberActions struct {
+// ReplicationGroupMemberAction contains a row of the table replication_group_member_actions
+type ReplicationGroupMemberAction struct {
 	name          string
 	event         string
 	enabled       int
@@ -245,7 +272,7 @@ type ReplicationGroupMemberActions struct {
 	errorHandling string
 }
 
-func (gcma ReplicationGroupMemberActions) String() string {
+func (gcma ReplicationGroupMemberAction) String() string {
 	return fmt.Sprintf("{name: %q, event: %q, enabled: %v, type: %q, priority: %v, errorHandling: %q}",
 		gcma.name,
 		gcma.event,
@@ -255,32 +282,49 @@ func (gcma ReplicationGroupMemberActions) String() string {
 		gcma.errorHandling)
 }
 
-func getReplicationGroupMemberActions(db *sql.DB) ReplicationGroupMemberActions {
+// return the replication group member actions (if possible)
+func getReplicationGroupMemberActions(db *sql.DB) []ReplicationGroupMemberAction {
 	debugLogging("getReplicationGroupMemberActions()")
-	gma := ReplicationGroupMemberActions{}
+	var actions []ReplicationGroupMemberAction
 
 	statement := `
 SELECT	name, event, enabled, type, priority, error_handling
 FROM	performance_schema.replication_group_member_actions
 `
-	row := db.QueryRow(statement)
-	err := row.Scan(
-		&gma.name,
-		&gma.event,
-		&gma.enabled,
-		&gma.actionType,
-		&gma.priority,
-		&gma.errorHandling,
-	)
-	if err == sql.ErrNoRows {
-		log.Printf("error: gma: no rows...")
-	} else if missingTable(err) {
-		// do nothing
-	} else if err != nil {
-		// handle error
-		panic(err)
+
+	rows, err := db.Query(statement)
+	if err != nil {
+		log.Print("getReplicationGroupMemberActions: %v", err)
+		return nil
 	}
-	return gma
+	defer rows.Close()
+
+	for rows.Next() {
+		addRow := true // be explicit
+		gma := ReplicationGroupMemberAction{}
+
+		err := rows.Scan(
+			&gma.name,
+			&gma.event,
+			&gma.enabled,
+			&gma.actionType,
+			&gma.priority,
+			&gma.errorHandling,
+		)
+		if err == sql.ErrNoRows {
+			addRow = false
+		} else if missingTable(err) {
+			addRow = false
+		} else if err != nil {
+			// handle error
+			panic(err)
+		}
+		if addRow {
+			actions = append(actions, gma)
+		}
+	}
+
+	return actions
 }
 
 // seems to have only one row atm
@@ -407,7 +451,7 @@ type CollectedStatistics struct {
 	gtidExecuted               string
 	grCommunicationInformation GroupCommunicationInformation
 	grConfigurationVersion     GroupConfigurationVersion
-	grMemberActions            ReplicationGroupMemberActions
+	grMemberActions            []ReplicationGroupMemberAction
 	grMemberStats              []MemberStats
 	grMembers                  []ReplicationGroupMember
 }
@@ -496,6 +540,7 @@ func (member *Member) Collect() CollectedStatistics {
 	}
 }
 
+// diffString provides a representation of a diff of 2 strings
 func diffString(oldString, newString string) string {
 	if oldString == newString {
 		return newString
@@ -503,13 +548,27 @@ func diffString(oldString, newString string) string {
 	return fmt.Sprintf("-%q/+%q", oldString, newString)
 }
 
+// fmtDuration provides a formatted duration (seconds with 3 decimas)
 func fmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%d.%03ds", int(d.Seconds()), d.Milliseconds()%1000)
 }
 
+// getMemberStatsFrom returns the member stats by matching on uuid
+func getMemberStatsFrom(uuid string, memberStats []MemberStats) *MemberStats {
+	for _, member := range memberStats {
+		if uuid != "" && uuid == member.memberId {
+			return &member
+		}
+	}
+	return nil
+}
+
+// showDiff shows the difference between 2 sets of CollectdStatistics
 func showDiff(oldData, newData CollectedStatistics) {
+	var info string
+	var handledUUIDs []string
+
 	diff := strings.Join([]string{
-		//		newData.collected.Sub(oldData.collected).String(),
 		fmtDuration(newData.collected.Sub(oldData.collected)),
 		diffString(oldData.hostname, newData.hostname),
 		diffString(oldData.uuid, newData.uuid),
@@ -517,16 +576,38 @@ func showDiff(oldData, newData CollectedStatistics) {
 	}, " ")
 	log.Printf(diff + "")
 
-	// now show all member information
-	var info string
+	// show all member information
+	log.Print("- members:")
 	if len(newData.grMembers) > 0 {
 		for _, member := range newData.grMembers {
-			info = member.String()
-			log.Printf("       - " + info)
+			memberStats := getMemberStatsFrom(member.memberId, newData.grMemberStats)
+			statsData := ""
+			if memberStats != nil {
+				handledUUIDs = append(handledUUIDs, member.memberId)
+				statsData = memberStats.String()
+			}
+
+			log.Printf("       - %v%v", member.String(), statsData)
 		}
 	} else {
 		info = newData.hostname + " has no GR members"
 		log.Printf("       - " + info)
+	}
+
+	// show all member stats which haven't been handled
+	printed := false
+	if len(newData.grMembers) > 0 {
+		for _, stats := range newData.grMemberStats {
+			// skip the status if handled already (as part of a member)
+			if stats.memberId == "" || slices.Contains(handledUUIDs, stats.memberId) {
+				continue
+			}
+			if !printed {
+				log.Print("- stats:")
+				printed = true
+			}
+			log.Printf("       - " + stats.String())
+		}
 	}
 }
 
@@ -538,8 +619,6 @@ func (member *Member) MemberCheck() {
 	if member.db != nil {
 		debugLogging("Checking %q...", member.dsn)
 		cs := member.Collect()
-
-		log.Printf("DEBUG: collected gr member length: %d", len(cs.grMembers))
 
 		// compare the collected information for changes
 		debugLogging("old: %+v", member.collectedStatistics)
@@ -593,17 +672,23 @@ func (checker *Checker) Run() {
 func main() {
 	var (
 		memberDsn string
-		interval  = 1
 	)
 
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
+	flag.IntVar(&interval, "interval", defaultInterval, "interval to collect metrics")
+	flag.StringVar(&dsn, "dsn", "" /* no default dsn */, "MySQL DSN to connect to the (first) server (in the cluster)")
 	flag.Parse()
 
-	if len(os.Args) >= 2 {
+	if len(flag.Args()) > 0 {
+		log.Printf("Overrriding dsn %q with %v from command line", dsn, flag.Args()[0])
+		memberDsn = flag.Args()[0]
+	}
+	if len(flag.Args()) > 1 {
+		log.Printf("Overrriding interval %v with %v from command line", interval, flag.Args()[1])
 		memberDsn = os.Args[1]
 	}
 	if len(memberDsn) == 0 {
-		// dsn not provided or empty so try to get from MYSQL_DSN
+		log.Print("dsn not provided on command line. Trying to retrieve from MYSQL_DSN environment variable")
 		memberDsn = os.Getenv("MYSQL_DSN")
 	}
 	if len(memberDsn) == 0 {
@@ -611,10 +696,10 @@ func main() {
 	}
 
 	// update interval
-	if len(os.Args) >= 3 {
-		argInterval, err := strconv.Atoi(os.Args[2])
+	if len(flag.Args()) >= 3 {
+		argInterval, err := strconv.Atoi(flag.Args()[2])
 		if err != nil {
-			log.Fatalln("unable to convert", os.Args[2], "to a int:", err)
+			log.Fatalln("unable to convert", flag.Args()[2], "to a int:", err)
 		}
 		interval = argInterval
 	}
