@@ -2,13 +2,25 @@ package main
 
 import (
 	"database/sql"
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 )
+
+// global variables are not ideal but leave this for now
+var debug bool
+
+func debugLogging(fmt string, args ...any) {
+	if debug {
+		log.Printf(fmt, args...)
+	}
+}
 
 /*
 node1 [localhost:21201] {msandbox} (performance_schema) > show create table replication_group_member_stats\G
@@ -68,7 +80,7 @@ func (ms MemberStats) String() string {
 }
 
 func getMemberStats(db *sql.DB) []MemberStats {
-	log.Printf("getMemberStats()\n")
+	debugLogging("getMemberStats()")
 	var ms []MemberStats
 
 	statement := `
@@ -112,7 +124,7 @@ FROM	performance_schema.replication_group_member_stats
 			&stats.countTransactionsLocalRollback,
 		); err {
 		case sql.ErrNoRows:
-			log.Printf("error: stats: no rows...\n")
+			log.Printf("error: stats: no rows...")
 		case nil:
 		default:
 			panic(err)
@@ -134,32 +146,42 @@ node1 [localhost:21201] {msandbox} (performance_schema) > select * from replicat
 +---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
 1 row in set (0.00 sec)
 */
-type GroupMember struct {
+type ReplicationGroupMember struct {
 	channelName              string
 	memberID                 string
 	memberHost               string
-	memberPort               int
+	memberPort               uint16
 	memberState              string
 	memberRole               string
 	memberVersion            string
 	memberCommunicationStack string
 }
 
-func (gm GroupMember) String() string {
-	return fmt.Sprintf("{channelName: %q, memberID: %q, memberHost: %q:%v, memberState: %q, memberRole: %v, memberVersion: %q, memberCommunicationStack: %q}",
+// convert a host, port to host:port, but if host is empty show empty quotes for clarity
+func hostPort(host string, port uint16) string {
+	h := ""
+	if host == "" {
+		h = `""`
+	} else {
+		h = host
+	}
+	return fmt.Sprintf("%v:%v", h, port)
+}
+
+func (gm ReplicationGroupMember) String() string {
+	return fmt.Sprintf("{channelName: %q, memberID: %q, memberHost: %v, memberState: %q, memberRole: %v, memberVersion: %q, memberCommunicationStack: %q}",
 		gm.channelName,
 		gm.memberID,
-		gm.memberHost,
-		gm.memberPort,
+		hostPort(gm.memberHost, gm.memberPort),
 		gm.memberState,
 		gm.memberRole,
 		gm.memberVersion,
 		gm.memberCommunicationStack)
 }
 
-func getGroupMembers(db *sql.DB) []GroupMember {
-	log.Printf("getGroupMembers()\n")
-	var gm []GroupMember
+func getReplicationGroupMembers(db *sql.DB) []ReplicationGroupMember {
+	debugLogging("getReplicationGroupMembers()")
+	var gm []ReplicationGroupMember
 
 	statement := `
 SELECT	CHANNEL_NAME, MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE, MEMBER_VERSION, MEMBER_COMMUNICATION_STACK
@@ -167,34 +189,40 @@ FROM	performance_schema.replication_group_members
 `
 	rows, err := db.Query(statement)
 	if err != nil {
-		log.Print("query %v failed: %v", statement, err)
+		log.Printf("query %v failed: %v", statement, err)
 		return nil
 	}
 	defer rows.Close()
 	for rows.Next() {
-		member := GroupMember{}
+		member := ReplicationGroupMember{}
+
+		var memberPort sql.NullInt32
 
 		switch err := rows.Scan(
 			&member.channelName,
 			&member.memberID,
 			&member.memberHost,
-			&member.memberPort,
+			&memberPort,
 			&member.memberState,
 			&member.memberRole,
 			&member.memberVersion,
 			&member.memberCommunicationStack,
 		); err {
 		case sql.ErrNoRows:
-			log.Printf("error: member: no rows...\n")
+			log.Printf("error: member: no rows...")
 		case nil:
 		default:
 			panic(err)
+		}
+		if memberPort.Valid {
+			member.memberPort = uint16(memberPort.Int32)
 		}
 		gm = append(gm, member)
 	}
 	if err := rows.Err(); err != nil {
 		panic(err)
 	}
+	log.Printf("- found %d group members", len(gm))
 	return gm
 }
 
@@ -208,7 +236,7 @@ root@grmetadb-1003 [performance_schema]> select * from replication_group_member_
 +------------------------------------------+------------------------+---------+----------+----------+----------------+
 */
 
-type GroupMemberActions struct {
+type ReplicationGroupMemberActions struct {
 	name          string
 	event         string
 	enabled       int
@@ -217,7 +245,7 @@ type GroupMemberActions struct {
 	errorHandling string
 }
 
-func (gcma GroupMemberActions) String() string {
+func (gcma ReplicationGroupMemberActions) String() string {
 	return fmt.Sprintf("{name: %q, event: %q, enabled: %v, type: %q, priority: %v, errorHandling: %q}",
 		gcma.name,
 		gcma.event,
@@ -227,27 +255,29 @@ func (gcma GroupMemberActions) String() string {
 		gcma.errorHandling)
 }
 
-func getGroupMemberActions(db *sql.DB) GroupMemberActions {
-	log.Printf("getGroupMemberActions()\n")
-	gma := GroupMemberActions{}
+func getReplicationGroupMemberActions(db *sql.DB) ReplicationGroupMemberActions {
+	debugLogging("getReplicationGroupMemberActions()")
+	gma := ReplicationGroupMemberActions{}
 
 	statement := `
 SELECT	name, event, enabled, type, priority, error_handling
 FROM	performance_schema.replication_group_member_actions
 `
 	row := db.QueryRow(statement)
-	switch err := row.Scan(
+	err := row.Scan(
 		&gma.name,
 		&gma.event,
 		&gma.enabled,
 		&gma.actionType,
 		&gma.priority,
 		&gma.errorHandling,
-	); err {
-	case sql.ErrNoRows:
-		log.Printf("error: gma: no rows...\n")
-	case nil:
-	default:
+	)
+	if err == sql.ErrNoRows {
+		log.Printf("error: gma: no rows...")
+	} else if missingTable(err) {
+		// do nothing
+	} else if err != nil {
+		// handle error
 		panic(err)
 	}
 	return gma
@@ -273,7 +303,7 @@ root@grmetadb-1003 [performance_schema]> select * from replication_group_configu
 */
 
 func getGroupConfigurationVersion(db *sql.DB) GroupConfigurationVersion {
-	log.Printf("getGroupConfigurationVersion()\n")
+	debugLogging("getGroupConfigurationVersion()")
 	gcv := GroupConfigurationVersion{}
 
 	statement := `
@@ -281,14 +311,16 @@ SELECT	name, version
 FROM	performance_schema.replication_group_configuration_version
 `
 	row := db.QueryRow(statement)
-	switch err := row.Scan(
+	err := row.Scan(
 		&gcv.name,
 		&gcv.version,
-	); err {
-	case sql.ErrNoRows:
-		log.Printf("error: gcv: no rows...\n")
-	case nil:
-	default:
+	)
+	if err == sql.ErrNoRows {
+		log.Printf("error: gcv: no rows...")
+	} else if missingTable(err) {
+		// do nothing
+	} else if err != nil {
+		// unexpected error
 		panic(err)
 	}
 	return gcv
@@ -311,7 +343,21 @@ func (gci GroupCommunicationInformation) String() string {
 		gci.writeConsensusSingleLeaderCapable)
 }
 
+// panic: Error 1146 (42S02): Table 'performance_schema.replication_group_communication_information' doesn't exist
+func missingTable(err error) bool {
+	if mysqlError, ok := err.(*mysql.MySQLError); ok {
+		if mysqlError.Number == 1146 /* make constant */ && string(mysqlError.SQLState[:]) == "42S02" /* handle better */ {
+			return true
+		}
+	}
+
+	return false
+}
+
 /*
+
+not in 8.0.32
+
 +-------------------+------------------+--------------------------------------+--------------------------------------+---------------------------------------+
 | WRITE_CONCURRENCY | PROTOCOL_VERSION | WRITE_CONSENSUS_LEADERS_PREFERRED    | WRITE_CONSENSUS_LEADERS_ACTUAL       | WRITE_CONSENSUS_SINGLE_LEADER_CAPABLE |
 +-------------------+------------------+--------------------------------------+--------------------------------------+---------------------------------------+
@@ -320,7 +366,7 @@ func (gci GroupCommunicationInformation) String() string {
 */
 
 func getGroupCommunicationInformation(db *sql.DB) GroupCommunicationInformation {
-	log.Printf("getGroupCommunicationInformation()\n")
+	debugLogging("getGroupCommunicationInformation()")
 	gci := GroupCommunicationInformation{}
 
 	statement := `
@@ -332,23 +378,28 @@ SELECT	WRITE_CONCURRENCY,
 FROM	performance_schema.replication_group_communication_information
 `
 	row := db.QueryRow(statement)
-	switch err := row.Scan(
+	err := row.Scan(
 		&gci.writeConcurrency,
 		&gci.protocolVersion,
 		&gci.writeConsensusLeadersPreferred,
 		&gci.writeConsensusLeadersActual,
 		&gci.writeConsensusSingleLeaderCapable,
-	); err {
-	case sql.ErrNoRows:
-		log.Printf("error: gci: no rows...\n")
-	case nil:
-	default:
+	)
+	if err == nil {
+		// no error - do nothing
+	} else if err == sql.ErrNoRows {
+		// most likely due to not being an active GR member
+	} else if missingTable(err) {
+		// return nothing as table does not exist
+	} else {
+		// unexpected error
 		panic(err)
 	}
+
 	return gci
 }
 
-type CollectionInformation struct {
+type CollectedStatistics struct {
 	collected                  time.Time // when data was collected
 	hostname                   string    // expected to be constant but might be behind a lb
 	uuid                       string
@@ -356,12 +407,12 @@ type CollectionInformation struct {
 	gtidExecuted               string
 	grCommunicationInformation GroupCommunicationInformation
 	grConfigurationVersion     GroupConfigurationVersion
-	grMemberActions            GroupMemberActions
+	grMemberActions            ReplicationGroupMemberActions
 	grMemberStats              []MemberStats
-	grMembers                  []GroupMember
+	grMembers                  []ReplicationGroupMember
 }
 
-func (ci CollectionInformation) String() string {
+func (ci CollectedStatistics) String() string {
 	return fmt.Sprintf("collected: %v, hostname: %v, uuid: %v, mysqlVersion: %v, gtidExecuted: %v, grCommunicationInformation: %+v, grConfigurationVersion: %v, grMemberActions: %v, grMemberStats: %v, grMembers: %+v",
 		ci.collected,
 		ci.hostname,
@@ -376,31 +427,31 @@ func (ci CollectionInformation) String() string {
 	)
 }
 
-// MemberInformation holds information collected about a member
-type MemberInformation struct {
-	dsn                   string  // provided host DSN
-	db                    *sql.DB // database pool
-	firstCollected        time.Time
-	lastCollected         time.Time
-	updatedCount          int
-	collectionInformation *CollectionInformation
+// Member holds information collected from a member
+type Member struct {
+	dsn                 string  // provided host DSN
+	db                  *sql.DB // database pool
+	firstCollected      time.Time
+	lastCollected       time.Time
+	updatedCount        int
+	collectedStatistics CollectedStatistics
 }
 
-func (mi *MemberInformation) ConnectIfNotConnected() {
+func (mi *Member) ConnectIfNotConnected() {
 	// connect to database if not already connected
 	if mi.db == nil {
 		db, err := sql.Open("mysql", mi.dsn)
 		if err == nil {
-			log.Printf("New connection to database: %q\n", mi.dsn)
+			log.Printf("New connection to database: %q", mi.dsn)
 			mi.db = db
 		} else {
-			log.Printf("Failed to connect to database: %q: %v\n", mi.dsn, err)
+			log.Printf("Failed to connect to database: %q: %v", mi.dsn, err)
 		}
 	}
 }
 
 func getBaseInformation(db *sql.DB) (string, string, string, string) {
-	log.Printf("getBaseInformation()\n")
+	debugLogging("getBaseInformation()")
 	statement := `SELECT @@hostname, @@server_uuid, @@version, @@gtid_executed`
 	var hostname, uuid, mysqlVersion, gtidExecuted string
 
@@ -412,7 +463,7 @@ func getBaseInformation(db *sql.DB) (string, string, string, string) {
 		&gtidExecuted,
 	); err {
 	case sql.ErrNoRows:
-		log.Printf("error: no rows...\n")
+		log.Printf("error: no rows...")
 	case nil:
 	default:
 		panic(err)
@@ -421,92 +472,156 @@ func getBaseInformation(db *sql.DB) (string, string, string, string) {
 	return hostname, uuid, mysqlVersion, gtidExecuted
 }
 
-// collect the required details from the database
-func (mi *MemberInformation) Collect() *CollectionInformation {
-	hostname, uuid, mysqlVersion, gtidExecuted := getBaseInformation(mi.db)
+// Collect infprmation about the specified member
+func (member *Member) Collect() CollectedStatistics {
+	now := time.Now() // use one value for consistency
+	if member.firstCollected.IsZero() {
+		member.firstCollected = now
+	}
+	hostname, uuid, mysqlVersion, gtidExecuted := getBaseInformation(member.db)
+	member.lastCollected = now
+	member.updatedCount++
 
-	ci := &CollectionInformation{
-		collected:                  time.Now(),
+	return CollectedStatistics{
+		collected:                  now,
 		hostname:                   hostname,
 		uuid:                       uuid,
 		mysqlVersion:               mysqlVersion,
 		gtidExecuted:               gtidExecuted,
-		grCommunicationInformation: getGroupCommunicationInformation(mi.db),
-		grConfigurationVersion:     getGroupConfigurationVersion(mi.db),
-		grMemberActions:            getGroupMemberActions(mi.db),
-		grMemberStats:              getMemberStats(mi.db),
-		grMembers:                  getGroupMembers(mi.db),
+		grCommunicationInformation: getGroupCommunicationInformation(member.db),
+		grConfigurationVersion:     getGroupConfigurationVersion(member.db),
+		grMemberActions:            getReplicationGroupMemberActions(member.db),
+		grMemberStats:              getMemberStats(member.db),
+		grMembers:                  getReplicationGroupMembers(member.db),
 	}
-
-	return ci
 }
 
-func (mi *MemberInformation) Check() {
-	log.Printf("mi.Check(%q)\n", mi.dsn)
+func diffString(oldString, newString string) string {
+	if oldString == newString {
+		return newString
+	}
+	return fmt.Sprintf("-%q/+%q", oldString, newString)
+}
 
-	mi.ConnectIfNotConnected()
+func fmtDuration(d time.Duration) string {
+	return fmt.Sprintf("%d.%03ds", int(d.Seconds()), d.Milliseconds()%1000)
+}
 
-	if mi.db != nil {
-		log.Printf("Checking %q...\n", mi.dsn)
-		ci := mi.Collect()
-		// compare the collected information for changes
-		log.Printf("-> %v\n", ci)
-		mi.collectionInformation = ci
+func showDiff(oldData, newData CollectedStatistics) {
+	diff := strings.Join([]string{
+		//		newData.collected.Sub(oldData.collected).String(),
+		fmtDuration(newData.collected.Sub(oldData.collected)),
+		diffString(oldData.hostname, newData.hostname),
+		diffString(oldData.uuid, newData.uuid),
+		diffString(oldData.mysqlVersion, newData.mysqlVersion),
+	}, " ")
+	log.Printf(diff + "")
+
+	// now show all member information
+	var info string
+	if len(newData.grMembers) > 0 {
+		for _, member := range newData.grMembers {
+			info = member.String()
+			log.Printf("       - " + info)
+		}
 	} else {
-		log.Printf("Skipping checking %q as not connected\n", mi.dsn)
+		info = newData.hostname + " has no GR members"
+		log.Printf("       - " + info)
 	}
 }
 
-// Checker will check the group for changes and inconsistencies
-type GroupChecker struct {
-	members []*MemberInformation
+func (member *Member) MemberCheck() {
+	debugLogging("mi.Check(%q)", member.dsn)
+
+	member.ConnectIfNotConnected()
+
+	if member.db != nil {
+		debugLogging("Checking %q...", member.dsn)
+		cs := member.Collect()
+
+		log.Printf("DEBUG: collected gr member length: %d", len(cs.grMembers))
+
+		// compare the collected information for changes
+		debugLogging("old: %+v", member.collectedStatistics)
+		debugLogging("new: %+v", cs)
+		showDiff(member.collectedStatistics, cs)
+		member.collectedStatistics = cs
+	} else {
+		log.Printf("Skipping checking %q as not connected", member.dsn)
+	}
 }
 
-// func (groupChecker *GroupChecker) Check() {
-// 	log.Printf("Check(%q)\n", groupChecker)
-// }
+// Checker holds a structure of members to check
+type Checker struct {
+	debug         bool
+	sleepInterval time.Duration
+	members       []*Member // we update information of the members
+}
 
 // NewChecker returns a new Checker
-func NewGroupChecker() *GroupChecker {
-	log.Printf("NewGroupChecker()\n")
-	return &GroupChecker{}
+func NewChecker(debug bool, interval int) *Checker {
+	log.Printf("NewChecker(%v,%v)", debug, interval)
+	debugLogging("NewChecker()")
+	return &Checker{
+		debug:         debug,
+		sleepInterval: time.Second * time.Duration(interval),
+	}
 }
 
 // AddMember adds a member to be checked
-func (groupChecker *GroupChecker) AddMember(memberDsn string) {
-	log.Printf("AddMember(%q)\n", memberDsn)
-	groupChecker.members = append(groupChecker.members, &MemberInformation{dsn: memberDsn})
+func (checker *Checker) AddMember(memberDsn string) {
+	debugLogging("AddMember(%q)", memberDsn)
+	checker.members = append(checker.members, &Member{dsn: memberDsn})
 }
 
 // RemoveMember removes a member from the list of members to be checked
-func (groupChecker *GroupChecker) RemoveMember(memberDsn string) {
-	log.Printf("RemoveMember(%q)\n", memberDsn)
+func (checker *Checker) RemoveMember(memberDsn string) {
+	debugLogging("RemoveMember(%q)", memberDsn)
 }
 
-// Run starts the checking process
-func (groupChecker *GroupChecker) Run() {
-	log.Printf("Run()\n")
+// Run checks all the members
+func (checker *Checker) Run() {
+	debugLogging("Run()")
 	for {
-		for _, member := range groupChecker.members {
-			member.Check()
+		for _, member := range checker.members {
+			member.MemberCheck()
 		}
-		time.Sleep(time.Second)
+		time.Sleep(checker.sleepInterval)
 	}
 }
 
 func main() {
-	var memberDsn string
-	if len(os.Args) != 2 {
-		log.Fatalln("no dsn provided to connect to")
-	}
-	memberDsn = os.Args[1]
-	if len(memberDsn) == 0 {
-		log.Fatalln("empty dsn provided")
-	}
-	log.Printf("Starting() using dsn: %q\n", memberDsn)
+	var (
+		memberDsn string
+		interval  = 1
+	)
 
-	groupChecker := NewGroupChecker()
-	groupChecker.AddMember(memberDsn)
-	groupChecker.Run()
-	log.Printf("Terminating()\n")
+	flag.BoolVar(&debug, "debug", false, "enable debug logging")
+	flag.Parse()
+
+	if len(os.Args) >= 2 {
+		memberDsn = os.Args[1]
+	}
+	if len(memberDsn) == 0 {
+		// dsn not provided or empty so try to get from MYSQL_DSN
+		memberDsn = os.Getenv("MYSQL_DSN")
+	}
+	if len(memberDsn) == 0 {
+		log.Fatalln("no dsn provided, MySQL_DSN not set or dsn provided is empty")
+	}
+
+	// update interval
+	if len(os.Args) >= 3 {
+		argInterval, err := strconv.Atoi(os.Args[2])
+		if err != nil {
+			log.Fatalln("unable to convert", os.Args[2], "to a int:", err)
+		}
+		interval = argInterval
+	}
+	log.Printf("Starting() using dsn: %q", memberDsn)
+
+	checker := NewChecker(debug, interval)
+	checker.AddMember(memberDsn)
+	checker.Run()
+	log.Printf("Terminating()")
 }

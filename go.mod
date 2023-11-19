@@ -1,4 +1,4 @@
-module github.com/sjmudd/gr-checker
+module github.com/sjmudd/grchecker
 
 go 1.20
 
