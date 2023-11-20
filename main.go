@@ -256,7 +256,7 @@ FROM	performance_schema.replication_group_members
 }
 
 /*
-root@grmetadb-1003 [performance_schema]> select * from replication_group_member_actions;
+root@node1 [performance_schema]> select * from replication_group_member_actions;
 +------------------------------------------+------------------------+---------+----------+----------+----------------+
 | name                                     | event                  | enabled | type     | priority | error_handling |
 +------------------------------------------+------------------------+---------+----------+----------+----------------+
@@ -341,7 +341,7 @@ func (gcv GroupConfigurationVersion) String() string {
 }
 
 /*
-root@grmetadb-1003 [performance_schema]> select * from replication_group_configuration_version;
+root@node1 [performance_schema]> select * from replication_group_configuration_version;
 +----------------------------------+---------+
 | name                             | version |
 +----------------------------------+---------+
