@@ -55,10 +55,11 @@ Create Table: CREATE TABLE `replication_group_member_stats` (
 
 */
 
+// MemberStats holds the content of replication_group_member_stats
 type MemberStats struct {
 	channelName                           string
 	viewID                                string
-	memberId                              string
+	memberID                              string
 	countTransactionsInQueue              int64
 	countTransactionsChecked              int64
 	countConflictsDetected                int64
@@ -88,7 +89,7 @@ func (ms MemberStats) String() string {
 	return fmt.Sprintf("%vview: %q, member: %q, InQueue: %v, Checked: %v, conflicts: %v, rowsValidating: %v, committedAllMembers: %q, lastTransaction: %q, RemoteInApplierQueue: %v, RemoteApplied: %v, LocalProposed: %v, LocalRollback: %v",
 		filteredChannelName(ms.channelName),
 		ms.viewID,
-		ms.memberId,
+		ms.memberID,
 		ms.countTransactionsInQueue,
 		ms.countTransactionsChecked,
 		ms.countConflictsDetected,
@@ -135,7 +136,7 @@ FROM	performance_schema.replication_group_member_stats
 		switch err := rows.Scan(
 			&stats.channelName,
 			&stats.viewID,
-			&stats.memberId,
+			&stats.memberID,
 			&stats.countTransactionsInQueue,
 			&stats.countTransactionsChecked,
 			&stats.countConflictsDetected,
@@ -170,9 +171,11 @@ node1 [localhost:21201] {msandbox} (performance_schema) > select * from replicat
 +---------------------------+--------------------------------------+-------------+-------------+--------------+-------------+----------------+----------------------------+
 1 row in set (0.00 sec)
 */
+
+// ReplicationGroupMember contains the content of a single row of the replication_group_members table
 type ReplicationGroupMember struct {
 	channelName              string
-	memberId                 string
+	memberID                 string
 	memberHost               string
 	memberPort               uint16
 	memberState              string
@@ -198,7 +201,7 @@ func (gm ReplicationGroupMember) String() string {
 	return fmt.Sprintf("%vmember: %v (%v), state: %q, role: %v, version: %q, stack: %q",
 		filteredChannelName(gm.channelName),
 		hostPort(gm.memberHost, gm.memberPort),
-		gm.memberId,
+		gm.memberID,
 		gm.memberState,
 		gm.memberRole,
 		gm.memberVersion,
@@ -227,7 +230,7 @@ FROM	performance_schema.replication_group_members
 
 		switch err := rows.Scan(
 			&member.channelName,
-			&member.memberId,
+			&member.memberID,
 			&member.memberHost,
 			&memberPort,
 			&member.memberState,
@@ -327,7 +330,7 @@ FROM	performance_schema.replication_group_member_actions
 	return actions
 }
 
-// seems to have only one row atm
+// GroupConfigurationVersion contains the content of the replication_group_configuration_version table
 type GroupConfigurationVersion struct {
 	name    string
 	version int
@@ -370,6 +373,7 @@ FROM	performance_schema.replication_group_configuration_version
 	return gcv
 }
 
+// GroupCommunicationInformation contains a row of the replication_group_configuration_version table
 type GroupCommunicationInformation struct {
 	writeConcurrency                  int
 	protocolVersion                   string
@@ -443,6 +447,7 @@ FROM	performance_schema.replication_group_communication_information
 	return gci
 }
 
+// CollectedStatistics contains the collected GR statistics for a host
 type CollectedStatistics struct {
 	collected                  time.Time // when data was collected
 	hostname                   string    // expected to be constant but might be behind a lb
@@ -481,15 +486,16 @@ type Member struct {
 	collectedStatistics CollectedStatistics
 }
 
-func (mi *Member) ConnectIfNotConnected() {
+// ConnectIfNotConnected connects to the database if it's not already connected
+func (member *Member) ConnectIfNotConnected() {
 	// connect to database if not already connected
-	if mi.db == nil {
-		db, err := sql.Open("mysql", mi.dsn)
+	if member.db == nil {
+		db, err := sql.Open("mysql", member.dsn)
 		if err == nil {
-			log.Printf("New connection to database: %q", mi.dsn)
-			mi.db = db
+			log.Printf("New connection to database: %q", member.dsn)
+			member.db = db
 		} else {
-			log.Printf("Failed to connect to database: %q: %v", mi.dsn, err)
+			log.Printf("Failed to connect to database: %q: %v", member.dsn, err)
 		}
 	}
 }
@@ -556,17 +562,53 @@ func fmtDuration(d time.Duration) string {
 // getMemberStatsFrom returns the member stats by matching on uuid
 func getMemberStatsFrom(uuid string, memberStats []MemberStats) *MemberStats {
 	for _, member := range memberStats {
-		if uuid != "" && uuid == member.memberId {
+		if uuid != "" && uuid == member.memberID {
 			return &member
 		}
 	}
 	return nil
 }
 
-// showDiff shows the difference between 2 sets of CollectdStatistics
+const invalidID = -1
+
+// getTransactionID converts a string of fhe form ebfcb50a-4b36-11ee-8601-d06726ac8630:80249444 to its id part
+// return -1 if the id is invalid
+func getTransactionID(trx string) int {
+	idString := strings.Split(trx, ":")
+	if len(idString) < 2 {
+		return -1
+	}
+	id, err := strconv.Atoi(idString[1])
+	if err != nil {
+		return -1
+	}
+	return id
+}
+
+func getLatestTransactionID(slice []MemberStats) int {
+	latestID := invalidID
+	for _, s := range slice {
+		id := getTransactionID(s.lastConflictFreeTransaction)
+		if id > latestID {
+			latestID = id
+		}
+	}
+	return latestID
+}
+
+// updateIntSlice updates the given slice if the values don't match providing a format and the difference
+func updateIntSlice(values *[]string, oldValue int64, newValue int64, format string) {
+	if oldValue != newValue {
+		*values = append(*values, fmt.Sprintf(format, newValue-oldValue))
+	}
+}
+
+// showDiff shows the difference between 2 sets of CollectedStatistics
 func showDiff(oldData, newData CollectedStatistics) {
-	var info string
-	var handledUUIDs []string
+	var (
+		info         string
+		handledUUIDs []string
+	)
 
 	diff := strings.Join([]string{
 		fmtDuration(newData.collected.Sub(oldData.collected)),
@@ -576,15 +618,67 @@ func showDiff(oldData, newData CollectedStatistics) {
 	}, " ")
 	log.Printf(diff + "")
 
-	// show all member information
+	// show all member information including relative stats information if available
 	log.Print("- members:")
 	if len(newData.grMembers) > 0 {
 		for _, member := range newData.grMembers {
-			memberStats := getMemberStatsFrom(member.memberId, newData.grMemberStats)
 			statsData := ""
-			if memberStats != nil {
-				handledUUIDs = append(handledUUIDs, member.memberId)
-				statsData = memberStats.String()
+			newMemberStats := getMemberStatsFrom(member.memberID, newData.grMemberStats)
+			if newMemberStats != nil {
+				handledUUIDs = append(handledUUIDs, member.memberID)
+				//				newStatsData = newMemberStats.String()
+			}
+			oldMemberStats := getMemberStatsFrom(member.memberID, oldData.grMemberStats)
+			if oldMemberStats != nil {
+				//				oldStatsData = oldMemberStats.String()
+			}
+			latestTransactionID := getLatestTransactionID(newData.grMemberStats)
+
+			if oldMemberStats != nil && newMemberStats != nil {
+				var values []string
+
+				// generate diff statistics
+				// - ignore channelName for now but should check it's the same!
+				//	viewID
+				if oldMemberStats.viewID != newMemberStats.viewID {
+					// "16938409756989404:79"
+					// crude:
+					values = append(values, fmt.Sprintf("view: -%v/+%v", oldMemberStats.viewID, newMemberStats.viewID))
+				}
+				//	memberID / uuid as must be the same
+				//	countTransactionsInQueue
+				updateIntSlice(&values, oldMemberStats.countTransactionsInQueue, newMemberStats.countTransactionsInQueue, "InQ: %+d")
+				//	countTransactionsChecked
+				updateIntSlice(&values, oldMemberStats.countTransactionsChecked, newMemberStats.countTransactionsChecked, "checked: %+d")
+				//	countConflictsDetected
+				updateIntSlice(&values, oldMemberStats.countConflictsDetected, newMemberStats.countConflictsDetected, "conflicts: %+d")
+				//	countTransactionsRowsValidating
+				updateIntSlice(&values, oldMemberStats.countTransactionsRowsValidating, newMemberStats.countTransactionsRowsValidating, "validating: %+d")
+				//	transactionsCommittedAllMembers       string // large GTID set!
+				//	lastConflictFreeTransaction           string
+				//  - only show the id part and ignore the uuid: prefix
+				transactionID := getTransactionID(newMemberStats.lastConflictFreeTransaction)
+				extra := ""
+				if transactionID < latestTransactionID {
+					extra = fmt.Sprintf(" (behind: %d)", latestTransactionID-transactionID)
+				}
+				values = append(values, fmt.Sprintf("lastTrx: %v%v", getTransactionID(newMemberStats.lastConflictFreeTransaction), extra))
+				//	countTransactionsRemoteInApplierQueue
+				updateIntSlice(&values, oldMemberStats.countTransactionsRemoteInApplierQueue, newMemberStats.countTransactionsRemoteInApplierQueue, "remoteInApplierQueue: %+d")
+				//	countTransactionsRemoteApplied
+				updateIntSlice(&values, oldMemberStats.countTransactionsRemoteApplied, newMemberStats.countTransactionsRemoteApplied, "remoteApplied: %+d")
+				//	countTransactionsLocalProposed
+				updateIntSlice(&values, oldMemberStats.countTransactionsLocalProposed, newMemberStats.countTransactionsLocalProposed, "localProposed: %+d")
+				//	countTransactionsLocalRollback
+				updateIntSlice(&values, oldMemberStats.countTransactionsLocalRollback, newMemberStats.countTransactionsLocalRollback, "localRollback: %+d")
+
+				if len(values) > 0 {
+					statsData = strings.Join(values, ", ")
+				}
+			}
+
+			if len(statsData) != 0 {
+				statsData = ", " + statsData
 			}
 
 			log.Printf("       - %v%v", member.String(), statsData)
@@ -599,7 +693,7 @@ func showDiff(oldData, newData CollectedStatistics) {
 	if len(newData.grMembers) > 0 {
 		for _, stats := range newData.grMemberStats {
 			// skip the status if handled already (as part of a member)
-			if stats.memberId == "" || slices.Contains(handledUUIDs, stats.memberId) {
+			if stats.memberID == "" || slices.Contains(handledUUIDs, stats.memberID) {
 				continue
 			}
 			if !printed {
@@ -611,6 +705,7 @@ func showDiff(oldData, newData CollectedStatistics) {
 	}
 }
 
+// MemberCheck checks a member's configuration
 func (member *Member) MemberCheck() {
 	debugLogging("mi.Check(%q)", member.dsn)
 
