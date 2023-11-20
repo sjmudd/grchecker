@@ -542,7 +542,7 @@ func getBaseInformation(db *sql.DB) (string, string, string, string) {
 	return hostname, uuid, mysqlVersion, gtidExecuted
 }
 
-// Collect infprmation about the specified member
+// Collect information about the specified member
 func (member *Member) Collect() CollectedStatistics {
 	now := time.Now() // use one value for consistency
 	if member.firstCollected.IsZero() {
