@@ -6,6 +6,9 @@ If you want to see how your GR cluster is performing this program
 may help. It currently behaves a little like `vmstat` in polling a
 single server and then showing the state of the GR cluster.
 
+To get an idea of current output take a look at:
+[sample_output.2023-11-19.txt](sample_output.2023-11-19.txt).
+
 I intend to extend this later to poll all members and then check
 for cluster inconsistencies, indicating them appropriately.
 
