@@ -511,12 +511,17 @@ func (member *Member) ConnectIfNotConnected() {
 	// connect to database if not already connected
 	if member.db == nil {
 		db, err := sql.Open("mysql", member.dsn)
-		if err == nil {
-			log.Printf("New connection to database: %q", removePassword(member.dsn))
-			member.db = db
-		} else {
-			log.Printf("Failed to connect to database: %q: %v", removePassword(member.dsn), err)
+		if err != nil {
+			log.Fatalf("Failed to connect to database: %q: %v", removePassword(member.dsn), err)
 		}
+
+		// add a Ping() to catch errors early and not later.
+		if err := db.Ping(); err != nil {
+			db.Close()
+			log.Fatalf("Failed to connect and Ping() database: %q: %v", removePassword(member.dsn), err)
+		}
+		log.Printf("New connection: %q", removePassword(member.dsn))
+		member.db = db
 	}
 }
 
