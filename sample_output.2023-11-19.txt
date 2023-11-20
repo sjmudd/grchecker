@@ -1,0 +1,41 @@
+2023/11/19 21:49:24 New connection to database: "user:pass@unix(/path/to/mysql.sock)/"
+2023/11/19 21:49:24 9223372036.854s -""/+"host2.example.com" -""/+"75b2...4890" -""/+"8.0.34"
+2023/11/19 21:49:24 - members:
+2023/11/19 21:49:24        - member: host2.example.com:3306 (75b2...4890), state: "ONLINE", role: PRIMARY, version: "8.0.34", stack: "MySQL"
+2023/11/19 21:49:24        - member: host3.example.com:3306 (9a93...b768), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL"
+2023/11/19 21:49:24        - member: host1.example.com:3306 (b23a...e49c), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL"
+2023/11/19 21:49:24        - member: host6.example.com:3306 (bdbc...3d80), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL"
+2023/11/19 21:49:24        - member: host4.example.com:3306 (c73b...de30), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL"
+2023/11/19 21:49:24        - member: host5.example.com:3306 (e3aa...ee14), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL"
+2023/11/19 21:49:25 1.002s host2.example.com 75b2...4890 8.0.34
+2023/11/19 21:49:25 - members:
+2023/11/19 21:49:25        - member: host2.example.com:3306 (75b2...4890), state: "ONLINE", role: PRIMARY, version: "8.0.34", stack: "MySQL", checked: +47, validating: +41, lastTrx: 4480372092, localProposed: +47
+2023/11/19 21:49:25        - member: host3.example.com:3306 (9a93...b768), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +29, validating: +20, lastTrx: 4480371436 (behind: 656), remoteApplied: +29
+2023/11/19 21:49:25        - member: host1.example.com:3306 (b23a...e49c), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", lastTrx: 4480371704 (behind: 388)
+2023/11/19 21:49:25        - member: host6.example.com:3306 (bdbc...3d80), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +28, validating: +20, lastTrx: 4480371738 (behind: 354), remoteApplied: +28
+2023/11/19 21:49:25        - member: host4.example.com:3306 (c73b...de30), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +47, validating: +40, lastTrx: 4480372013 (behind: 79), remoteApplied: +47
+2023/11/19 21:49:25        - member: host5.example.com:3306 (e3aa...ee14), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +35, validating: +26, lastTrx: 4480371163 (behind: 929), remoteApplied: +35
+2023/11/19 21:49:26 1.002s host2.example.com 75b2...4890 8.0.34
+2023/11/19 21:49:26 - members:
+2023/11/19 21:49:26        - member: host2.example.com:3306 (75b2...4890), state: "ONLINE", role: PRIMARY, version: "8.0.34", stack: "MySQL", checked: +36, validating: +28, lastTrx: 4480372128, localProposed: +37
+2023/11/19 21:49:26        - member: host3.example.com:3306 (9a93...b768), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +46, validating: +39, lastTrx: 4480371436 (behind: 692), remoteApplied: +46
+2023/11/19 21:49:26        - member: host1.example.com:3306 (b23a...e49c), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +83, validating: +69, lastTrx: 4480371704 (behind: 424), remoteApplied: +83
+2023/11/19 21:49:26        - member: host6.example.com:3306 (bdbc...3d80), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +46, validating: +40, lastTrx: 4480371738 (behind: 390), remoteApplied: +46
+2023/11/19 21:49:26        - member: host4.example.com:3306 (c73b...de30), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +37, validating: +30, lastTrx: 4480372013 (behind: 115), remoteInApplierQueue: +1, remoteApplied: +36
+2023/11/19 21:49:26        - member: host5.example.com:3306 (e3aa...ee14), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +40, validating: +34, lastTrx: 4480371163 (behind: 965), remoteApplied: +40
+2023/11/19 21:49:27 1.002s host2.example.com 75b2...4890 8.0.34
+2023/11/19 21:49:27 - members:
+2023/11/19 21:49:27        - member: host2.example.com:3306 (75b2...4890), state: "ONLINE", role: PRIMARY, version: "8.0.34", stack: "MySQL", checked: +35, validating: +28, lastTrx: 4480372163, localProposed: +33
+2023/11/19 21:49:27        - member: host3.example.com:3306 (9a93...b768), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +36, validating: +29, lastTrx: 4480371436 (behind: 727), remoteApplied: +36
+2023/11/19 21:49:27        - member: host1.example.com:3306 (b23a...e49c), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", lastTrx: 4480371704 (behind: 459)
+2023/11/19 21:49:27        - member: host6.example.com:3306 (bdbc...3d80), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +36, validating: +28, lastTrx: 4480371738 (behind: 425), remoteApplied: +36
+2023/11/19 21:49:27        - member: host4.example.com:3306 (c73b...de30), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +32, validating: +25, lastTrx: 4480372013 (behind: 150), remoteInApplierQueue: -1, remoteApplied: +33
+2023/11/19 21:49:27        - member: host5.example.com:3306 (e3aa...ee14), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +38, validating: +30, lastTrx: 4480371163 (behind: 1000), remoteApplied: +38
+2023/11/19 21:49:28 1.002s host2.example.com 75b2...4890 8.0.34
+2023/11/19 21:49:28 - members:
+2023/11/19 21:49:28        - member: host2.example.com:3306 (75b2...4890), state: "ONLINE", role: PRIMARY, version: "8.0.34", stack: "MySQL", checked: +35, validating: +33, lastTrx: 4480372198, localProposed: +35
+2023/11/19 21:49:28        - member: host3.example.com:3306 (9a93...b768), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +34, validating: +27, lastTrx: 4480371436 (behind: 762), remoteApplied: +34
+2023/11/19 21:49:28        - member: host1.example.com:3306 (b23a...e49c), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +71, validating: +62, lastTrx: 4480371704 (behind: 494), remoteApplied: +71
+2023/11/19 21:49:28        - member: host6.example.com:3306 (bdbc...3d80), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +34, validating: +28, lastTrx: 4480371738 (behind: 460), remoteApplied: +34
+2023/11/19 21:49:28        - member: host4.example.com:3306 (c73b...de30), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +39, validating: +37, lastTrx: 4480372013 (behind: 185), remoteApplied: +39
+2023/11/19 21:49:28        - member: host5.example.com:3306 (e3aa...ee14), state: "ONLINE", role: SECONDARY, version: "8.0.34", stack: "MySQL", checked: +30, validating: +23, lastTrx: 4480372165 (behind: 33), remoteApplied: +30
