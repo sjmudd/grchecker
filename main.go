@@ -17,6 +17,9 @@ import (
 const (
 	defaultInterval                     = 1 // period of collecting information
 	expectedGroupReplicationChannelName = "group_replication_applier"
+	invalidID                           = -1
+	noneString                          = "<None>" // for no transactions processed yet
+	hiddenPasswordString                = "<removed>"
 )
 
 // global variables are not ideal but leave this for now
@@ -479,7 +482,6 @@ func (ci CollectedStatistics) String() string {
 // removePassword removes the password from the DSN if found for display purposes
 // user:pass@... -> user:<removed>@...
 func removePassword(dsn string) string {
-	const replacement = "<removed>"
 
 	colonIndex := strings.Index(dsn, ":")
 	if colonIndex == -1 {
@@ -493,7 +495,7 @@ func removePassword(dsn string) string {
 		return dsn
 	}
 
-	return dsn[:colonIndex+1] + replacement + dsn[atIndex:]
+	return dsn[:colonIndex+1] + hiddenPasswordString + dsn[atIndex:]
 }
 
 // Member holds information collected from a member
@@ -594,8 +596,6 @@ func getMemberStatsFrom(uuid string, memberStats []MemberStats) *MemberStats {
 	return nil
 }
 
-const invalidID = -1
-
 // getTransactionID converts a string of fhe form ebfcb50a-4b36-11ee-8601-d06726ac8630:80249444 to its id part
 // return -1 if the id is invalid
 func getTransactionID(trx string) int {
@@ -608,6 +608,14 @@ func getTransactionID(trx string) int {
 		return -1
 	}
 	return id
+}
+
+// Wrapped TransactionID will return <None> if no transaction has been provided. (e.g. -1)
+func wrappedTransactionID(trxID int) string {
+	if trxID == invalidID {
+		return noneString
+	}
+	return fmt.Sprintf("%d", trxID)
 }
 
 func getLatestTransactionID(slice []MemberStats) int {
@@ -687,7 +695,7 @@ func showDiff(oldData, newData CollectedStatistics) {
 				if transactionID < latestTransactionID {
 					extra = fmt.Sprintf(" (behind: %d)", latestTransactionID-transactionID)
 				}
-				values = append(values, fmt.Sprintf("lastTrx: %v%v", getTransactionID(newMemberStats.lastConflictFreeTransaction), extra))
+				values = append(values, fmt.Sprintf("lastTrx: %v%v", wrappedTransactionID(transactionID), extra))
 				//	countTransactionsRemoteInApplierQueue
 				updateIntSlice(&values, oldMemberStats.countTransactionsRemoteInApplierQueue, newMemberStats.countTransactionsRemoteInApplierQueue, "remoteInApplierQueue: %+d")
 				//	countTransactionsRemoteApplied
@@ -790,9 +798,7 @@ func (checker *Checker) Run() {
 }
 
 func main() {
-	var (
-		memberDsn string
-	)
+	var memberDsn string
 
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.IntVar(&interval, "interval", defaultInterval, "interval to collect metrics")
@@ -812,21 +818,20 @@ func main() {
 		memberDsn = os.Getenv("MYSQL_DSN")
 	}
 	if len(memberDsn) == 0 {
-		log.Fatalln("no dsn provided, MySQL_DSN not set or dsn provided is empty")
+		log.Fatal("no dsn provided, MySQL_DSN not set or dsn provided is empty")
 	}
 
 	// update interval
 	if len(flag.Args()) >= 3 {
 		argInterval, err := strconv.Atoi(flag.Args()[2])
 		if err != nil {
-			log.Fatalln("unable to convert", flag.Args()[2], "to a int:", err)
+			log.Fatalln("unable to convert", flag.Args()[2], "to an int:", err)
 		}
 		interval = argInterval
 	}
-	log.Printf("Starting() using dsn: %q", removePassword(memberDsn))
+	log.Printf("Using dsn: %q", removePassword(memberDsn))
 
 	checker := NewChecker(debug, interval)
 	checker.AddMember(memberDsn)
 	checker.Run()
-	log.Printf("Terminating()")
 }
