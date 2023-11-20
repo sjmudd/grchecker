@@ -476,6 +476,26 @@ func (ci CollectedStatistics) String() string {
 	)
 }
 
+// removePassword removes the password from the DSN if found for display purposes
+// user:pass@... -> user:<removed>@...
+func removePassword(dsn string) string {
+	const replacement = "<removed>"
+
+	colonIndex := strings.Index(dsn, ":")
+	if colonIndex == -1 {
+		return dsn
+	}
+	atIndex := strings.Index(dsn, "@")
+	if atIndex == -1 {
+		return dsn
+	}
+	if colonIndex >= atIndex {
+		return dsn
+	}
+
+	return dsn[:colonIndex+1] + replacement + dsn[atIndex:]
+}
+
 // Member holds information collected from a member
 type Member struct {
 	dsn                 string  // provided host DSN
@@ -492,10 +512,10 @@ func (member *Member) ConnectIfNotConnected() {
 	if member.db == nil {
 		db, err := sql.Open("mysql", member.dsn)
 		if err == nil {
-			log.Printf("New connection to database: %q", member.dsn)
+			log.Printf("New connection to database: %q", removePassword(member.dsn))
 			member.db = db
 		} else {
-			log.Printf("Failed to connect to database: %q: %v", member.dsn, err)
+			log.Printf("Failed to connect to database: %q: %v", removePassword(member.dsn), err)
 		}
 	}
 }
@@ -707,12 +727,12 @@ func showDiff(oldData, newData CollectedStatistics) {
 
 // MemberCheck checks a member's configuration
 func (member *Member) MemberCheck() {
-	debugLogging("mi.Check(%q)", member.dsn)
+	debugLogging("mi.Check(%q)", removePassword(member.dsn))
 
 	member.ConnectIfNotConnected()
 
 	if member.db != nil {
-		debugLogging("Checking %q...", member.dsn)
+		debugLogging("Checking %q...", removePassword(member.dsn))
 		cs := member.Collect()
 
 		// compare the collected information for changes
@@ -721,7 +741,7 @@ func (member *Member) MemberCheck() {
 		showDiff(member.collectedStatistics, cs)
 		member.collectedStatistics = cs
 	} else {
-		log.Printf("Skipping checking %q as not connected", member.dsn)
+		log.Printf("Skipping checking %q as not connected", removePassword(member.dsn))
 	}
 }
 
@@ -744,13 +764,13 @@ func NewChecker(debug bool, interval int) *Checker {
 
 // AddMember adds a member to be checked
 func (checker *Checker) AddMember(memberDsn string) {
-	debugLogging("AddMember(%q)", memberDsn)
+	debugLogging("AddMember(%q)", removePassword(memberDsn))
 	checker.members = append(checker.members, &Member{dsn: memberDsn})
 }
 
 // RemoveMember removes a member from the list of members to be checked
 func (checker *Checker) RemoveMember(memberDsn string) {
-	debugLogging("RemoveMember(%q)", memberDsn)
+	debugLogging("RemoveMember(%q)", removePassword(memberDsn))
 }
 
 // Run checks all the members
@@ -798,7 +818,7 @@ func main() {
 		}
 		interval = argInterval
 	}
-	log.Printf("Starting() using dsn: %q", memberDsn)
+	log.Printf("Starting() using dsn: %q", removePassword(memberDsn))
 
 	checker := NewChecker(debug, interval)
 	checker.AddMember(memberDsn)
