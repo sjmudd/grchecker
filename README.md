@@ -17,10 +17,18 @@ Usage: grchecker <options> [<DSN>] [<interval>]
 
 If no parameters are provided then it will try to read from the
 MYSQL_DSN environment variable to determine the MySQL host to connect
-to.  For format to use is the [github.com/go-sql-drivers/mysql](https://github.com/go-sql-driver/mysql)
+to.  The format to use is the [github.com/go-sql-drivers/mysql](https://github.com/go-sql-driver/mysql)
 package's DSN format.
 
-The polling interval can be modified and by default is 1 second.
+The polling interval is seconds and can be modified.  The default
+value is 1 second.
+
+```
+Options:
+--debug enable debug logging
+--interval=99 collection interval
+--dsn=<dsn>  provide a golang MySQL DSN to connect to a server.
+```
 
 ## Notes
 
