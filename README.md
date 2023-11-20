@@ -11,11 +11,13 @@ for cluster inconsistencies, indicating them appropriately.
 
 ## Usage
 
-grchecker <options> [<DSN>] [<interval>]
+```
+Usage: grchecker <options> [<DSN>] [<interval>]
+```
 
 If no parameters are provided then it will try to read from the
 MYSQL_DSN environment variable to determine the MySQL host to connect
-to.  For format to use is the github.com/go-sql-drivers/mysql
+to.  For format to use is the [github.com/go-sql-drivers/mysql](https://github.com/go-sql-driver/mysql)
 package's DSN format.
 
 The polling interval can be modified and by default is 1 second.
@@ -23,7 +25,7 @@ The polling interval can be modified and by default is 1 second.
 ## Notes
 
 This is very much work in progress. Current behaviour works on MySQL
-8.0 but can collect MySQL 8.2+ GR table information.
+8.0 but can collect MySQL 8.2+ GR table information too.
 
 ### Contributing
 
