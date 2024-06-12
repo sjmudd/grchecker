@@ -300,7 +300,7 @@ FROM	performance_schema.replication_group_member_actions
 
 	rows, err := db.Query(statement)
 	if err != nil {
-		log.Print("getReplicationGroupMemberActions: %v", err)
+		log.Printf("getReplicationGroupMemberActions: %v", err)
 		return nil
 	}
 	defer rows.Close()
@@ -659,12 +659,8 @@ func showDiff(oldData, newData CollectedStatistics) {
 			newMemberStats := getMemberStatsFrom(member.memberID, newData.grMemberStats)
 			if newMemberStats != nil {
 				handledUUIDs = append(handledUUIDs, member.memberID)
-				//				newStatsData = newMemberStats.String()
 			}
 			oldMemberStats := getMemberStatsFrom(member.memberID, oldData.grMemberStats)
-			if oldMemberStats != nil {
-				//				oldStatsData = oldMemberStats.String()
-			}
 			latestTransactionID := getLatestTransactionID(newData.grMemberStats)
 
 			if oldMemberStats != nil && newMemberStats != nil {
